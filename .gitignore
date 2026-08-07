@@ -3,9 +3,6 @@ dist/
 .env
 *.log
 
-# ssh-keygen
-ssh_key*
-
 # Terraform
 # .terraform.lock.hcl IS committed on purpose — it pins provider versions and
 # hashes. It carries hashes for linux and darwin on both architectures so
