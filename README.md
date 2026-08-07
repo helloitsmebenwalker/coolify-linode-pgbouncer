@@ -29,43 +29,23 @@ The app exposes `/` (a small status page), `/healthz`, `/api/info` and
 
 ## Deploying to Linode with Coolify
 
-You need a Linode API token with read/write on Linodes, Firewalls and Databases:
+**[DEPLOY.md](DEPLOY.md) has the full walkthrough**, plus a Coolify crash course
+and the gotchas worth knowing before you hit them. The short version:
 
 ```bash
-export LINODE_TOKEN=...     # in your host shell, before opening the dev container
-```
+export LINODE_TOKEN=...                        # host shell
 
-**1. Provision the host.**
-
-```bash
 cd infra/coolify
-cp terraform.tfvars.example terraform.tfvars   # add your SSH key + your IP
+cp terraform.tfvars.example terraform.tfvars   # your SSH key + your IP
 cd ../..
+
 make tf-init tf-apply
+make coolify-install-log                       # installer runs on after apply returns
+make coolify-url                               # claim the admin account promptly
 ```
 
-This creates an Ubuntu 24.04 Linode, attaches a firewall, and runs cloud-init to
-install Coolify. Ports 80/443 are open to the world; SSH and the Coolify
-dashboard on 8000 are restricted to `admin_ipv4_cidrs`.
-
-Installation takes several minutes after `apply` returns. Watch it:
-
-```bash
-make coolify-install-log
-```
-
-**2. Claim the Coolify instance.**
-
-```bash
-make coolify-url        # http://<ip>:8000
-```
-
-Open it and create the admin account. Do this promptly — until you do, anyone
-who can reach port 8000 can claim the instance.
-
-**3. Deploy the app.** In Coolify: *New Resource → Docker Compose*, point it at
-this repo, and set the compose location to `/docker-compose.coolify.yml`. Assign
-a domain and Coolify handles Traefik and Let's Encrypt.
+Then in Coolify: *New Resource → Docker Compose*, point it at this repo, set the
+compose location to `/docker-compose.coolify.yml`, assign a domain, deploy.
 
 `docker-compose.coolify.yml` deliberately publishes no ports — Coolify's proxy
 routes to the container via `SERVICE_FQDN_APP_3000`. Publishing ports there

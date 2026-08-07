@@ -48,13 +48,19 @@ resource "linode_firewall" "coolify" {
     }
   }
 
+  # 8000 is the dashboard, 6001 is the realtime channel that streams build and
+  # deployment logs into the UI, and 6002 backs the in-browser terminal. All
+  # three are contacted by your browser directly, not proxied through 443, so
+  # opening 8000 alone gives you a dashboard whose logs never load.
+  #
+  # Once you put the dashboard behind a domain on 443, all three can be closed.
   dynamic "inbound" {
     for_each = length(local.admin_cidrs) > 0 ? [1] : []
     content {
-      label    = "allow-coolify-dashboard"
+      label    = "allow-coolify-admin"
       action   = "ACCEPT"
       protocol = "TCP"
-      ports    = "8000"
+      ports    = "8000,6001,6002"
       ipv4     = local.admin_cidrs
     }
   }
