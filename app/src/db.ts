@@ -2,23 +2,35 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
-const connectionString = process.env.DATABASE_URL;
+const rawConnectionString = process.env.DATABASE_URL;
 
-if (!connectionString) {
+if (!rawConnectionString) {
   throw new Error('DATABASE_URL is not set');
 }
 
+const url = new URL(rawConnectionString);
+const sslmode = url.searchParams.get('sslmode') ?? 'disable';
+
+/**
+ * `sslmode` has to come OUT of the connection string before `pg` sees it.
+ * ConnectionParameters does `Object.assign({}, config, parse(connectionString))`,
+ * and pg-connection-string builds its own `ssl` object whenever `sslmode` is
+ * present — so the parsed value lands last and silently overwrites the `ssl`
+ * passed below, CA and all. The symptom is SELF_SIGNED_CERT_IN_CHAIN against a
+ * server whose certificate verifies fine with the same CA outside of `pg`.
+ */
+url.searchParams.delete('sslmode');
+const connectionString = url.toString();
+
 /**
  * Akamai's managed Postgres requires TLS, while the local compose database
- * speaks plaintext. `pg` does not act on the `sslmode` parameter consistently,
- * so decide here rather than leaving it to the driver.
+ * speaks plaintext. Decide here rather than leaving it to the driver.
  *
  * Set DATABASE_CA_CERT (from `terraform -chdir=infra/database output -raw
  * ca_cert`) to actually verify the server. Without it `require` means encrypted
  * but unverified — same as libpq, and still open to an active MITM.
  */
 function sslConfig(): false | { ca?: string; rejectUnauthorized: boolean } {
-  const sslmode = new URL(connectionString!).searchParams.get('sslmode') ?? 'disable';
   if (sslmode === 'disable') return false;
 
   const ca = process.env.DATABASE_CA_CERT;
