@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+*.log
+
+# Terraform
+# .terraform.lock.hcl IS committed on purpose — it pins provider versions and
+# hashes. It carries hashes for linux and darwin on both architectures so
+# `terraform init` works on a laptop and inside the Linux dev container alike.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+tfplan

@@ -1,0 +1,50 @@
+{
+  "name": "linode-spike",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "dockerDashComposeVersion": "v2"
+    },
+    "ghcr.io/devcontainers/features/terraform:1": {
+      "version": "1.9",
+      "tflint": "latest"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12",
+      "installTools": false
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  "forwardPorts": [3000, 55432],
+  "portsAttributes": {
+    "3000": { "label": "app", "onAutoForward": "notify" },
+    "55432": { "label": "postgres", "onAutoForward": "silent" }
+  },
+
+  "remoteEnv": {
+    "LINODE_TOKEN": "${localEnv:LINODE_TOKEN}",
+    "TF_VAR_linode_token": "${localEnv:LINODE_TOKEN}"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "hashicorp.terraform",
+        "ms-azuretools.vscode-docker",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "editor.formatOnSave": true
+      }
+    }
+  },
+
+  "remoteUser": "node"
+}

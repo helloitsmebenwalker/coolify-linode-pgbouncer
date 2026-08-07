@@ -1,0 +1,38 @@
+# Local PgBouncer, standing in for the Aiven-managed pooler.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.pgbouncer.yml up -d
+#   make bench-local
+#   make semantics-local
+#
+# The point of this overlay is to let you answer "can my app tolerate
+# transaction pooling?" and "does pooling help my workload?" on your laptop,
+# before provisioning a managed cluster. The pool mode and size mirror the
+# variables in infra/database, so what you learn here carries over.
+
+services:
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-app}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+      DB_NAME: ${POSTGRES_DB:-app}
+      # Match infra/database/variables.tf defaults.
+      POOL_MODE: ${POOL_MODE:-transaction}
+      DEFAULT_POOL_SIZE: ${POOL_SIZE:-10}
+      MAX_CLIENT_CONN: 1000
+      AUTH_TYPE: scram-sha-256
+      LISTEN_PORT: 6432
+      ADMIN_USERS: ${POSTGRES_USER:-app}
+    ports:
+      - "${PGBOUNCER_HOST_PORT:-56432}:6432"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U ${POSTGRES_USER:-app} || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>linode-spike</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #16161a;
+        --muted: #61616b;
+        --line: #e3e3e8;
+        --accent: #1c6feb;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #101014;
+          --fg: #f2f2f5;
+          --muted: #9a9aa5;
+          --line: #2a2a33;
+          --accent: #5c9dff;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 3rem 1.25rem;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        display: flex;
+        justify-content: center;
+      }
+      main { width: 100%; max-width: 40rem; }
+      h1 { font-size: 1.6rem; margin: 0 0 0.25rem; letter-spacing: -0.02em; }
+      p.sub { color: var(--muted); margin: 0 0 2rem; }
+      section {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 1.25rem;
+        margin-bottom: 1rem;
+      }
+      h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
+           color: var(--muted); margin: 0 0 0.75rem; font-weight: 600; }
+      dl { display: grid; grid-template-columns: 9rem 1fr; gap: 0.4rem 1rem; margin: 0; }
+      dt { color: var(--muted); }
+      dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem;
+           overflow-wrap: anywhere; }
+      button {
+        font: inherit; font-weight: 500; cursor: pointer;
+        background: var(--accent); color: #fff; border: 0;
+        border-radius: 7px; padding: 0.55rem 1rem;
+      }
+      button:hover { filter: brightness(1.08); }
+      ul { margin: 0.75rem 0 0; padding-left: 1.1rem; color: var(--muted);
+           font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }
+      .total { font-size: 2rem; font-weight: 600; letter-spacing: -0.02em; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>linode-spike</h1>
+      <p class="sub">Dockerised app deployed by Coolify on Linode.</p>
+
+      <section>
+        <h2>Runtime</h2>
+        <dl id="info"><dd>loading…</dd></dl>
+      </section>
+
+      <section>
+        <h2>Postgres round-trip</h2>
+        <p class="total" id="total">—</p>
+        <button id="record">Record a visit</button>
+        <ul id="recent"></ul>
+      </section>
+    </main>
+
+    <script type="module">
+      const infoEl = document.getElementById('info');
+      const totalEl = document.getElementById('total');
+      const recentEl = document.getElementById('recent');
+
+      async function loadInfo() {
+        const res = await fetch('/api/info');
+        const data = await res.json();
+        infoEl.innerHTML = Object.entries(data)
+          .map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`)
+          .join('');
+      }
+
+      async function loadVisits() {
+        const res = await fetch('/api/visits');
+        const { total, recent } = await res.json();
+        totalEl.textContent = total;
+        recentEl.innerHTML = recent
+          .map((v) => `<li>#${v.id} — ${new Date(v.created_at).toLocaleString()}</li>`)
+          .join('');
+      }
+
+      document.getElementById('record').addEventListener('click', async () => {
+        await fetch('/api/visits', { method: 'POST' });
+        await loadVisits();
+      });
+
+      await Promise.all([loadInfo(), loadVisits()]);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "linode-spike-bench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Compare direct Postgres connections against the Aiven/PgBouncer pool.",
+  "scripts": {
+    "bench": "node bench.mjs",
+    "semantics": "node semantics.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}

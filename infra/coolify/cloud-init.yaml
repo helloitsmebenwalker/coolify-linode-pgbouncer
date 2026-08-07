@@ -1,0 +1,56 @@
+#cloud-config
+# Provisions a Coolify host. Coolify's installer brings its own Docker, so we
+# only prepare the OS and hand off to it.
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - ca-certificates
+  - fail2ban
+  - unattended-upgrades
+
+write_files:
+  # Coolify builds images on this host; a small instance without swap will OOM
+  # partway through an npm install and leave a half-built image behind.
+  - path: /etc/sysctl.d/99-coolify.conf
+    content: |
+      vm.swappiness=10
+      vm.overcommit_memory=1
+
+  - path: /etc/fail2ban/jail.local
+    content: |
+      [sshd]
+      enabled = true
+      maxretry = 5
+      bantime = 3600
+
+runcmd:
+  # 2 GB swap file — cheap insurance for image builds.
+  - |
+    if [ ! -f /swapfile ]; then
+      fallocate -l 2G /swapfile
+      chmod 600 /swapfile
+      mkswap /swapfile
+      swapon /swapfile
+      echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    fi
+  - sysctl --system
+  - systemctl enable --now fail2ban
+
+  # Harden SSH: keys only.
+  - sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+  - systemctl restart ssh || systemctl restart sshd
+
+  # Install Coolify. This pulls Docker, sets up the Coolify stack and starts it
+  # on :8000. Log goes to /var/log/coolify-install.log for debugging.
+  - |
+    curl -fsSL https://cdn.coollabs.io/coolify/install.sh \
+      -o /root/install-coolify.sh
+    bash /root/install-coolify.sh 2>&1 | tee /var/log/coolify-install.log
+
+  - touch /var/lib/cloud/coolify-provisioned
+
+final_message: "Coolify host ready after $UPTIME seconds. Dashboard on :8000."

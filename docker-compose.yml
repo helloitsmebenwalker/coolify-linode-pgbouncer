@@ -1,0 +1,44 @@
+# Local development stack. Run with: make dev
+#
+# Production deploys use docker-compose.coolify.yml — Coolify supplies the
+# domain, TLS and reverse proxy, so this file is the only place ports are
+# published to the host.
+
+services:
+  app:
+    build:
+      context: ./app
+      target: runtime
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-devpassword}@db:5432/${POSTGRES_DB:-app}
+      GREETING: ${GREETING:-Hello from local docker-compose}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    ports:
+      # Deliberately not 5432: a locally-installed Postgres binds 127.0.0.1:5432
+      # and silently wins, so `psql localhost:5432` would hit the wrong server.
+      - "${POSTGRES_HOST_PORT:-55432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:

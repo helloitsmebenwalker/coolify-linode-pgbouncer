@@ -1,0 +1,21 @@
+# Copy to terraform.tfvars and edit.
+
+label         = "linode-spike-pg"
+region        = "us-ord"
+engine_id     = "postgresql/16"
+instance_type = "g6-standard-1"
+cluster_size  = 1
+
+# The Coolify host, plus your own IP if you want to run the benchmark locally.
+#   terraform -chdir=../coolify output -raw database_allow_list_entry
+#   curl -s ifconfig.me
+allow_list = [
+  "203.0.113.10/32",
+  "203.0.113.4/32",
+]
+
+# PgBouncer
+pool_name     = "app-pool"
+pool_database = "defaultdb"
+pool_mode     = "transaction"
+pool_size     = 10

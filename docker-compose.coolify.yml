@@ -1,0 +1,54 @@
+# Production stack, deployed by Coolify.
+#
+# In Coolify: New Resource -> Docker Compose, point it at this repo and set
+# "Docker Compose Location" to /docker-compose.coolify.yml.
+#
+# Notes specific to Coolify:
+#   * No `ports:` — Coolify's Traefik proxy routes to the container port named
+#     in SERVICE_FQDN_APP_3000. Publishing ports here would bypass TLS.
+#   * SERVICE_FQDN_* and SERVICE_PASSWORD_* are Coolify magic variables. Coolify
+#     generates the value on first deploy and reuses it afterwards.
+#   * Set DATABASE_URL yourself in Coolify's env editor if you point the app at
+#     Aiven instead of the bundled `db` service (see infra/aiven/).
+
+services:
+  app:
+    build:
+      context: ./app
+      target: runtime
+    environment:
+      # Coolify replaces this with the domain you assign, and configures Traefik.
+      SERVICE_FQDN_APP_3000: ${SERVICE_FQDN_APP_3000}
+      NODE_ENV: production
+      PORT: 3000
+      GREETING: ${GREETING:-Hello from Coolify on Linode}
+      DATABASE_URL: ${DATABASE_URL:-postgres://app:${SERVICE_PASSWORD_POSTGRES}@db:5432/app}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # Delete this service if you use Aiven for PostgreSQL instead.
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      POSTGRES_DB: app
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
