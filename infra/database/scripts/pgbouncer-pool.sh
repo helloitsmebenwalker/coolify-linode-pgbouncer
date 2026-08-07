@@ -79,12 +79,12 @@ pool_exists() {
 cmd_apply() {
   local body
   body="$(jq -n \
-    --arg label "$POOL_NAME" \
+    --arg poolLabel "$POOL_NAME" \
     --arg database "${POOL_DB:-defaultdb}" \
     --arg mode "${POOL_MODE:-transaction}" \
     --arg username "${POOL_USER:-}" \
     --argjson size "${POOL_SIZE:-10}" \
-    '{label: $label, database: $database, mode: $mode, size: $size}
+    '{"label": $poolLabel, database: $database, mode: $mode, size: $size}
      + (if $username == "" then {} else {username: $username} end)')"
 
   if pool_exists; then
