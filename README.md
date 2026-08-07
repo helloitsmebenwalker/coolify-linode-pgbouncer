@@ -51,6 +51,37 @@ compose location to `/docker-compose.coolify.yml`, assign a domain, deploy.
 routes to the container via `SERVICE_FQDN_APP_3000`. Publishing ports there
 would bypass TLS.
 
+### What a deploy looks like
+
+Coolify clones the repo, builds the image on the host, starts the container and
+waits for its healthcheck before flipping the proxy over to it.
+
+![Coolify deployment log, showing the build pipeline from git import through
+image build to a running container](docs/1.png)
+
+The resource header is the thing to watch: it reaches **Running (healthy)** only
+once the `HEALTHCHECK` in `app/Dockerfile` passes, which is what makes the
+cutover zero-downtime.
+
+Container logs stream into the **Logs** tab — migrations run at boot, then the
+healthcheck starts polling `/healthz`:
+
+![Coolify logs tab showing migrations applied, the server listening on port
+3000, and successful 200 responses to /healthz](docs/2.png)
+
+You get a working URL without configuring any DNS. Coolify assigns
+`app-<uuid>.<host-ip>.sslip.io`, and `sslip.io` resolves the IP straight out of
+the hostname:
+
+![Browser showing the /healthz endpoint on the sslip.io URL returning
+{"status":"ok","uptime":344.1}](docs/3.png)
+
+`/healthz` returns 503 while the database is unreachable and 200 once it
+connects, so a healthy response here means the whole path — proxy, app, TLS to
+the managed cluster — is working. Note the **Not Secure** badge: sslip.io gets
+you HTTP only. For a certificate you need a domain you control, per
+[DEPLOY.md](DEPLOY.md).
+
 ## Managed PostgreSQL and PgBouncer
 
 Akamai's Managed Databases are [powered by
