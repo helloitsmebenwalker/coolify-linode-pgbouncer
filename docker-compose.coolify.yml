@@ -9,7 +9,7 @@
 #   * SERVICE_FQDN_* and SERVICE_PASSWORD_* are Coolify magic variables. Coolify
 #     generates the value on first deploy and reuses it afterwards.
 #   * Set DATABASE_URL yourself in Coolify's env editor if you point the app at
-#     Aiven instead of the bundled `db` service (see infra/aiven/).
+#     the managed database instead of the bundled `db` service (see infra/database/).
 
 services:
   app:
@@ -22,10 +22,7 @@ services:
       NODE_ENV: production
       PORT: 3000
       GREETING: ${GREETING:-Hello from Coolify on Linode}
-      DATABASE_URL: ${DATABASE_URL:-postgres://app:${SERVICE_PASSWORD_POSTGRES}@db:5432/app}
-    depends_on:
-      db:
-        condition: service_healthy
+      DATABASE_URL: ${DATABASE_URL}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/healthz || exit 1"]
       interval: 15s
@@ -34,7 +31,7 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # Delete this service if you use Aiven for PostgreSQL instead.
+  # Delete this service if you use the managed database instead.
 #   db:
 #     image: postgres:17-alpine
 #     environment:
