@@ -13,7 +13,8 @@ output "port" {
 }
 
 output "root_username" {
-  value = linode_database_postgresql_v2.this.root_username
+  value     = linode_database_postgresql_v2.this.root_username
+  sensitive = true
 }
 
 output "root_password" {
