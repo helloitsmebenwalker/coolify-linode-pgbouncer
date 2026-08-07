@@ -7,7 +7,7 @@ resource "linode_database_postgresql_v2" "this" {
   allow_list   = var.allow_list
 
   updates = {
-    duration    = 3
+    duration    = 4
     frequency   = "weekly"
     hour_of_day = 7
     day_of_week = 1
