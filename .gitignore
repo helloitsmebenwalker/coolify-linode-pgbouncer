@@ -2,6 +2,8 @@ node_modules/
 dist/
 .env
 *.log
+
+# ssh-keygen
 ssh_key*
 
 # Terraform
