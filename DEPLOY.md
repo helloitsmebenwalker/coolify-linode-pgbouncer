@@ -1,7 +1,7 @@
 # Deploying to Linode with Coolify
 
 A walkthrough of getting this project onto a Linode host, plus enough Coolify
-background to operate it. For what the project *is*, see [README.md](README.md).
+background to operate it. For what the project _is_, see [README.md](README.md).
 
 - [Deployment, step by step](#deployment-step-by-step)
 - [Coolify crash course](#coolify-crash-course)
@@ -18,7 +18,7 @@ background to operate it. For what the project *is*, see [README.md](README.md).
 - An SSH keypair (`ssh-keygen -t ed25519` if you need one)
 - A domain you can add DNS records to. Optional, but without one there is no
   HTTPS — Let's Encrypt will not issue a certificate for a bare IP
-- This repo pushed to GitHub. Coolify deploys *from git*, not from your laptop
+- This repo pushed to GitHub. Coolify deploys _from git_, not from your laptop
 
 ```bash
 export LINODE_TOKEN=...        # host shell, before opening the dev container
@@ -90,7 +90,7 @@ terraform -chdir=infra/coolify output ipv4
 
 Add an `A` record: `app.yourdomain.com → <ip>`.
 
-Let it propagate *before* assigning the domain in Coolify. Let's Encrypt
+Let it propagate _before_ assigning the domain in Coolify. Let's Encrypt
 validates over port 80, and issuance fails if DNS is not yet live.
 
 ### 6. Deploy the app
@@ -109,6 +109,12 @@ In the Coolify UI:
 Coolify clones the repo, builds [app/Dockerfile](app/Dockerfile), starts the
 stack, waits for the healthcheck to pass, then points Traefik at it and requests
 a certificate.
+
+If you skipped step 5, Coolify still assigns a working URL of the form
+`http://app-<uuid>.<ip>.sslip.io` — `sslip.io` resolves the IP out of the
+hostname, so it needs no DNS of your own. Plain HTTP only; Let's Encrypt needs
+a domain you control. `docker inspect <container> | grep COOLIFY_FQDN` prints
+it, as does the **Links** menu on the resource page.
 
 ### 7. Provision managed Postgres and the PgBouncer pool
 
@@ -149,8 +155,17 @@ In Coolify → your resource → **Environment Variables**:
   means encrypted but unverified, which still leaves you open to an active
   machine-in-the-middle.
 
-Then remove the `db` service and the `pgdata` volume from
+Then comment out the `db` service and the `pgdata` volume from
 `docker-compose.coolify.yml`, commit, and redeploy.
+
+**Remove `app`'s `depends_on: db` in the same edit.** Commenting out the service
+while leaving the dependency behind fails the build before it starts, with
+`service "app" depends on undefined service "db": invalid compose project`.
+Catch it without a deploy cycle by running the same parse Coolify runs:
+
+```bash
+docker compose -f docker-compose.coolify.yml config
+```
 
 ### 10. Teardown
 
@@ -184,24 +199,24 @@ Server                  a machine Coolify manages over SSH (localhost, or remote
 
 Four resource types:
 
-| Type | What it is |
-|---|---|
-| **Application** | A git repo built into a single container |
-| **Database** | Postgres/MySQL/Redis/Mongo, run as a container Coolify manages |
-| **Service** | One-click templates — Plausible, n8n, Supabase, etc. |
-| **Docker Compose** | Multi-container, from a compose file in your repo |
+| Type               | What it is                                                     |
+| ------------------ | -------------------------------------------------------------- |
+| **Application**    | A git repo built into a single container                       |
+| **Database**       | Postgres/MySQL/Redis/Mongo, run as a container Coolify manages |
+| **Service**        | One-click templates — Plausible, n8n, Supabase, etc.           |
+| **Docker Compose** | Multi-container, from a compose file in your repo              |
 
 This project uses **Docker Compose**, because an app plus a database is two
 containers.
 
 ### Build packs
 
-| Pack | Use when |
-|---|---|
-| **Nixpacks** | No Dockerfile; auto-detects the language. Convenient, opaque. |
-| **Dockerfile** | You control the build. |
-| **Docker Compose** | Several services in one resource. ← this project |
-| **Static** | Plain HTML or an SPA build output. |
+| Pack               | Use when                                                      |
+| ------------------ | ------------------------------------------------------------- |
+| **Nixpacks**       | No Dockerfile; auto-detects the language. Convenient, opaque. |
+| **Dockerfile**     | You control the build.                                        |
+| **Docker Compose** | Several services in one resource. ← this project              |
+| **Static**         | Plain HTML or an SPA build output.                            |
 
 ### How a deploy runs
 
@@ -216,7 +231,7 @@ trigger (webhook or manual)
 ```
 
 That healthcheck is what makes deploys zero-downtime. Without one, Coolify
-switches traffic as soon as the container *starts*, and users hit an app that is
+switches traffic as soon as the container _starts_, and users hit an app that is
 still booting. This is why [app/Dockerfile](app/Dockerfile) declares a
 `HEALTHCHECK` and the app serves `/healthz`, which returns 503 while the
 database is unreachable.
@@ -239,12 +254,12 @@ Four kinds: **runtime**, **build-time** (passed as `--build-arg`), **shared**
 
 Magic variables are generated by Coolify on first deploy and then persisted:
 
-| Pattern | Effect |
-|---|---|
-| `SERVICE_FQDN_<SERVICE>_<PORT>` | Assigns a domain, wires the proxy to that container port |
-| `SERVICE_URL_<SERVICE>_<PORT>` | Same, exposed as a full URL |
-| `SERVICE_PASSWORD_<NAME>` | Generates a password once, reuses it forever |
-| `SERVICE_BASE64_<NAME>`, `SERVICE_HEX_<NAME>` | Generated secrets |
+| Pattern                                       | Effect                                                   |
+| --------------------------------------------- | -------------------------------------------------------- |
+| `SERVICE_FQDN_<SERVICE>_<PORT>`               | Assigns a domain, wires the proxy to that container port |
+| `SERVICE_URL_<SERVICE>_<PORT>`                | Same, exposed as a full URL                              |
+| `SERVICE_PASSWORD_<NAME>`                     | Generates a password once, reuses it forever             |
+| `SERVICE_BASE64_<NAME>`, `SERVICE_HEX_<NAME>` | Generated secrets                                        |
 
 Both of the first two appear in
 [docker-compose.coolify.yml](docker-compose.coolify.yml).
@@ -306,6 +321,20 @@ cron. Running out of disk on a Coolify host fails deploys in confusing ways.
 **Coolify runs its own Postgres and Redis** for its own state. Do not confuse
 those containers with your application's database, and do not prune them.
 
+**`sslmode` in the URL silently overrides the `ssl` object you pass to `pg`.**
+`ConnectionParameters` does `Object.assign({}, config, parse(connectionString))`,
+and `pg-connection-string` builds its own `ssl` object whenever `sslmode` is
+present — so the parsed value lands last and discards your `ssl.ca`. Against a
+managed database with a private CA that surfaces as
+`SELF_SIGNED_CERT_IN_CHAIN`, on a certificate that `openssl s_client -CAfile`
+verifies without complaint. The tell is that raw `tls.connect()` with the same
+CA string succeeds while `new Pool()` fails. [app/src/db.ts](app/src/db.ts)
+strips `sslmode` from the string and configures TLS itself.
+
+Verifying a CA change actually verifies: point `DATABASE_CA_CERT` at an
+unrelated CA and confirm the connection *fails*. A config that succeeds with
+both the right and the wrong CA is not checking anything.
+
 **Editing the compose file may need a re-parse.** Adding a service in git is not
 always enough; Coolify re-reads the file on redeploy, and occasionally you need
 "Reload Compose File" before new services appear in the UI.
@@ -314,11 +343,15 @@ always enough; Coolify re-reads the file on redeploy, and occasionally you need
 
 ## A note on accuracy
 
-The Terraform, Docker and application layers here have been run end to end. The
-Coolify UI steps follow the documented flow but have not been executed against a
-live instance, and Coolify's interface changes quickly between releases — the
-concepts are stable, the button labels less so. If a menu name does not match,
-the underlying idea should still apply.
+The Terraform, Docker and application layers here have been run end to end, as
+have the Coolify UI steps — against Coolify v4.1.2. Coolify's interface changes
+quickly between releases, so the concepts are stable and the button labels less
+so; if a menu name does not match, the underlying idea should still apply.
+
+Two places where v4.1.2 differed from the flow described above: the onboarding
+wizard opens with a **Choose Server Type** step (pick **This Machine** — Coolify
+manages the host it runs on, and skips the SSH connection step entirely), and
+the compose-location field defaulted to `.yaml` where this repo uses `.yml`.
 
 Sources: [Coolify installation](https://coolify.io/docs/get-started/installation),
 [firewall ports](https://coolify.io/docs/knowledge-base/server/firewall),

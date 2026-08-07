@@ -1,9 +1,9 @@
 import pg from 'pg';
 
 /**
- * Akamai/Aiven managed Postgres requires TLS. `pg` does not act on the
- * sslmode query parameter on its own, so translate it here. Pass the cluster
- * CA via PGSSLROOTCERT to get real verification instead of require-only.
+ * Akamai/Aiven managed Postgres requires TLS. Translate sslmode here rather
+ * than letting the driver do it. Pass the cluster CA via PGSSLROOTCERT_PEM to
+ * get real verification instead of require-only.
  */
 export function sslConfigFor(url) {
   const sslmode = new URL(url).searchParams.get('sslmode') ?? 'require';
@@ -16,12 +16,26 @@ export function sslConfigFor(url) {
   return { rejectUnauthorized: sslmode === 'verify-full' || sslmode === 'verify-ca' };
 }
 
+/**
+ * sslmode has to come OUT of the string before `pg` parses it. Internally `pg`
+ * does `Object.assign({}, config, parse(connectionString))`, and
+ * pg-connection-string synthesises its own `ssl` object whenever sslmode is
+ * present — so it lands last and overwrites the `ssl` above, CA included. The
+ * symptom is SELF_SIGNED_CERT_IN_CHAIN on a certificate that verifies fine
+ * everywhere else.
+ */
+function withoutSslmode(url) {
+  const parsed = new URL(url);
+  parsed.searchParams.delete('sslmode');
+  return parsed.toString();
+}
+
 export function makeClient(url) {
-  return new pg.Client({ connectionString: url, ssl: sslConfigFor(url) });
+  return new pg.Client({ connectionString: withoutSslmode(url), ssl: sslConfigFor(url) });
 }
 
 export function makePool(url, max) {
-  return new pg.Pool({ connectionString: url, ssl: sslConfigFor(url), max });
+  return new pg.Pool({ connectionString: withoutSslmode(url), ssl: sslConfigFor(url), max });
 }
 
 export function percentile(sorted, p) {

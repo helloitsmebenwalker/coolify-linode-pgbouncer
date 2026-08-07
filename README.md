@@ -68,7 +68,43 @@ make pool-show      # prints the PgBouncer host/port and DATABASE_URL
 ```
 
 Then set `DATABASE_URL` in Coolify's environment editor to the pooled URL and
-delete the bundled `db` service from the compose file.
+delete the bundled `db` service from the compose file — along with `app`'s
+`depends_on: db`, or the compose project no longer parses.
+
+### What the pooler is actually doing
+
+```
+your app ──┐
+your app ──┤                        ┌── backend ──┐
+your app ──┼── PgBouncer ───────────┼── backend ──┼── Postgres
+your app ──┤   (up to pool_size     └── backend ──┘
+your app ──┘    backends)
+   many                                  few
+```
+
+Postgres gives every connection its own OS process with its own memory, so
+connections are expensive and finite — the cluster has a hard `max_connections`
+and hands out `sorry, too many clients already` past it. PgBouncer sits in
+front, accepts far more client connections than the database could hold, and
+multiplexes them onto a small set of reusable backends.
+
+Two numbers govern this, and they are not the same:
+
+| | what it caps | in this repo |
+|---|---|---|
+| `pool_size` | backend connections to Postgres | `pool_size` in `infra/database/terraform.tfvars` (default 10) |
+| `max_client_conn` | client connections the pooler accepts | managed by Akamai; the local overlay sets 1000 |
+
+A client that arrives when all backends are busy is **queued**, not refused.
+That is the whole trade: latency under contention instead of connection errors.
+It is exactly what the `saturate` benchmark above shows — direct refused 61 of
+150 clients, the pooler served all 150 more slowly.
+
+Size `pool_size` against the cluster's `max_connections`, not against your
+traffic. Every pool on the cluster draws from the same budget, so the pools plus
+any direct connections have to fit inside it. Bigger is not better: past the
+point where backends outnumber usable cores, throughput flattens and latency
+rises.
 
 ### Pool modes
 
@@ -77,6 +113,51 @@ delete the bundled `db` service from the compose file.
 | `transaction` | one transaction | default; the reason to run PgBouncer at all |
 | `session` | the whole client connection | you need session state and can accept much less pooling |
 | `statement` | one statement | rare; forbids multi-statement transactions |
+
+Mode is the single most consequential setting. In `session` mode a backend is
+tied up for as long as a client stays connected, so an app holding 100 idle
+connections still pins 100 backends and you have gained almost nothing. Only
+`transaction` mode delivers the many-to-few ratio in the diagram — which is why
+it is the default here, and why the next section exists.
+
+### What transaction mode breaks
+
+A backend is returned to the pool at every `COMMIT`, so anything Postgres scopes
+to a *session* rather than a *transaction* silently stops behaving. Your next
+statement may land on a different backend, and a backend you used may be handed
+to another tenant mid-request.
+
+`make semantics-local` runs eight checks against a real PgBouncer, covering each
+of these plus two controls — that `SET LOCAL` does survive, and that a backend
+really is being shared:
+
+| session-scoped thing | what happens in transaction mode | safe equivalent |
+|---|---|---|
+| `SET app.tenant_id = …` | leaks to other clients, and yours is lost | `SET LOCAL` inside a transaction |
+| `pg_advisory_lock()` | no longer mutually exclusive | `pg_advisory_xact_lock()` |
+| `CREATE TEMP TABLE` | visible to other clients | a real table, or keep it inside one transaction |
+| `LISTEN` / `NOTIFY` | notifications never arrive | poll a table, or a dedicated session-mode connection |
+| `DECLARE … CURSOR WITH HOLD` | gone after commit | fetch in one transaction, or paginate with keyset |
+| client-side transaction spanning round-trips | may execute across different backends | issue `BEGIN`…`COMMIT` within one checkout |
+
+The tenant leak is the one to take seriously. If you scope row-level security
+with a session GUC, transaction pooling turns that into a **cross-tenant data
+leak** — not an error, not a crash, just the wrong rows. `SET LOCAL` is the fix
+and passes in both modes.
+
+Two things the harness does not cover:
+
+- **Named prepared statements.** `pg` uses unnamed statements for ordinary
+  parameterised queries, which are fine. If you pass `name:` to `client.query()`
+  — or use a library that does — those need PgBouncer 1.21+ with
+  `max_prepared_statements` enabled. Verify before relying on it.
+- **`WITH HOLD` and session state set by extensions or connection-init hooks**,
+  including anything an ORM runs once per connection. If your ORM sets a
+  timezone or search_path on connect, confirm it does so per transaction.
+
+When something genuinely needs session semantics, the answer is usually two
+URLs: the pooled one for normal traffic, a direct connection for the background
+worker that runs `LISTEN`. Both are outputs of `infra/database`.
 
 ### A caveat on Terraform
 
@@ -121,6 +202,9 @@ with `pool_size=2` and 8 clients:
   broken  temp table visibility              visible to 4 other client(s)
   broken  LISTEN / NOTIFY delivery           not delivered within 3s
 ```
+
+(Abridged — the run also reports `SET LOCAL inside a transaction`,
+`cursor WITH HOLD after commit` and `transaction atomicity under load`.)
 
 Those are the real hazards, not theoretical ones. The tenant leak is the one to
 take seriously: if you scope row-level security with `SET app.tenant_id` outside
@@ -181,10 +265,21 @@ make semantics                     # the safety audit, against the real pool
   **56432**. A Postgres installed directly on your machine binds
   `127.0.0.1:5432` and silently wins, which makes `psql localhost:5432` hit the
   wrong server.
-- Managed databases require TLS. The generated URLs carry `?sslmode=require`;
-  `pg` doesn't honour that parameter by itself, so `bench/lib.mjs` translates it.
-  Set `PGSSLROOTCERT_PEM` to the cluster CA (`terraform output ca_cert`) for full
-  verification instead of encrypt-only.
+- Managed databases require TLS. The generated URLs carry `?sslmode=require`,
+  and that parameter has to be stripped from the string before `pg` parses it —
+  otherwise pg-connection-string synthesises its own `ssl` object from it and
+  overwrites the one you passed, CA and all, failing with
+  `SELF_SIGNED_CERT_IN_CHAIN`. Both
+  [`bench/lib.mjs`](bench/lib.mjs) and [`app/src/db.ts`](app/src/db.ts) strip it
+  and configure TLS themselves. Set `PGSSLROOTCERT_PEM` to the cluster CA for
+  full verification instead of encrypt-only:
+
+  ```bash
+  export PGSSLROOTCERT_PEM="$(terraform -chdir=infra/database output -raw ca_cert)"
+  ```
+
+  `-raw` matters — without it Terraform wraps the PEM in `<<EOT` heredoc markers
+  and the certificate will not parse.
 - `*.tfvars` and `*.tfstate` are gitignored. State is local; for anything beyond
   a spike, move it to a remote backend.
 
