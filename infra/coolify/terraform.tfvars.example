@@ -1,6 +1,6 @@
 # Copy to terraform.tfvars and edit.
 
-label         = "linode-spike"
+label         = "coolify-linode-pgbouncer"
 region        = "us-ord"
 instance_type = "g6-standard-2"
 

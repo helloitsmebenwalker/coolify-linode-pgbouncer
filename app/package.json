@@ -1,5 +1,5 @@
 {
-  "name": "linode-spike-app",
+  "name": "coolify-linode-pgbouncer-app",
   "version": "1.0.0",
   "private": true,
   "type": "module",

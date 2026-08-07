@@ -1,4 +1,4 @@
-# linode-spike
+# coolify-linode-pgbouncer
 
 A Dockerised app deployed with [Coolify](https://coolify.io) on Linode (Akamai
 Cloud), plus a test rig for Akamai's Aiven-backed Managed PostgreSQL and its

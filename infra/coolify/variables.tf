@@ -8,7 +8,7 @@ variable "linode_token" {
 variable "label" {
   description = "Name prefix for all resources in this stack."
   type        = string
-  default     = "linode-spike"
+  default     = "coolify-linode-pgbouncer"
 }
 
 variable "region" {
@@ -57,7 +57,7 @@ variable "admin_ipv4_cidrs" {
 variable "tags" {
   description = "Tags applied to the Linode instance."
   type        = list(string)
-  default     = ["linode-spike", "coolify"]
+  default     = ["coolify-linode-pgbouncer", "coolify"]
 }
 
 variable "attach_data_volume" {

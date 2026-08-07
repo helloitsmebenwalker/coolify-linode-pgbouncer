@@ -30,7 +30,7 @@ logs: ## Tail local app logs
 
 .PHONY: build
 build: ## Build the production image exactly as Coolify will
-	docker build -t linode-spike-app:local ./app
+	docker build -t coolify-linode-pgbouncer-app:local ./app
 
 .PHONY: typecheck
 typecheck: ## Typecheck the app

@@ -1,6 +1,6 @@
 # Copy to terraform.tfvars and edit.
 
-label         = "linode-spike-pg"
+label         = "coolify-linode-pgbouncer-pg"
 region        = "us-ord"
 engine_id     = "postgresql/16"
 instance_type = "g6-standard-1"

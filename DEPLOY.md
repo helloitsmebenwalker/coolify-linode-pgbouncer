@@ -166,7 +166,7 @@ would keep running, which is the main argument for it over a hosted PaaS.
 
 ```
 Server                  a machine Coolify manages over SSH (localhost, or remote)
-└── Project             logical grouping, e.g. "linode-spike"
+└── Project             logical grouping, e.g. "coolify-linode-pgbouncer"
     └── Environment     production / staging
         └── Resource    the thing that actually runs
 ```

@@ -7,7 +7,7 @@ variable "linode_token" {
 variable "label" {
   description = "Name of the managed database cluster."
   type        = string
-  default     = "linode-spike-pg"
+  default     = "coolify-linode-pgbouncer-pg"
 }
 
 variable "region" {

@@ -1,5 +1,5 @@
 {
-  "name": "linode-spike",
+  "name": "coolify-linode-pgbouncer",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
 
   "features": {
