@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 *.log
+ssh_key*
 
 # Terraform
 # .terraform.lock.hcl IS committed on purpose — it pins provider versions and
