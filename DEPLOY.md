@@ -51,6 +51,17 @@ This creates the Linode, attaches a cloud firewall and runs cloud-init.
 **`apply` returns long before Coolify is ready.** Terraform waits for the
 instance to exist, not for the installer inside it to finish.
 
+**New instance, new host key.** Every `tf-apply` after a `tf-destroy` lands on
+a fresh IP, so your SSH client has never seen its host key and will stop with
+a `yes/no/[fingerprint]` prompt. That's fine at an interactive terminal — type
+`yes` — but it fails as `Host key verification failed.` when `make ssh` or
+`make coolify-install-log` runs somewhere without a TTY attached (a script, a
+CI step, an agent harness). Pre-accept the key to avoid the prompt entirely:
+
+```bash
+ssh-keyscan -H "$(terraform -chdir=infra/coolify output -raw ipv4)" >> ~/.ssh/known_hosts
+```
+
 ### 3. Watch the install finish
 
 ```bash
