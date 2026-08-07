@@ -35,20 +35,20 @@ services:
     restart: unless-stopped
 
   # Delete this service if you use Aiven for PostgreSQL instead.
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
-      POSTGRES_DB: app
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d app"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
+#   db:
+#     image: postgres:17-alpine
+#     environment:
+#       POSTGRES_USER: app
+#       POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+#       POSTGRES_DB: app
+#     volumes:
+#       - pgdata:/var/lib/postgresql/data
+#     healthcheck:
+#       test: ["CMD-SHELL", "pg_isready -U app -d app"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 10
+#     restart: unless-stopped
 
-volumes:
-  pgdata:
+# volumes:
+#   pgdata:
