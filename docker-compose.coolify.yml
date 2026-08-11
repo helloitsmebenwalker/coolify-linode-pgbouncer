@@ -81,6 +81,40 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # Consumer: mail_events -> bucket -> parsed rows in Postgres.
+  #
+  # Deliberately no SERVICE_FQDN: nothing needs to reach this from outside, so
+  # it stays off the proxy entirely. Its HTTP port is for the healthcheck and
+  # for `docker exec ... curl` when you want the stats.
+  #
+  # Scale it by running more replicas — every claim is SKIP LOCKED, so they
+  # divide the queue rather than duplicating work.
+  mailproc:
+    build:
+      context: ./mailproc
+      target: runtime
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_CA_CERT: ${DATABASE_CA_CERT}
+      QUEUE_NAME: ${QUEUE_NAME:-mail_events}
+
+      S3_REGION: ${S3_REGION:-us-ord-1}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_ALLOWED_BUCKETS: ${S3_BUCKET}
+
+      EXTRACT_ATTACHMENTS: ${EXTRACT_ATTACHMENTS:-false}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3002/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
   # Delete this service if you use the managed database instead.
 #   db:
 #     image: postgres:17-alpine

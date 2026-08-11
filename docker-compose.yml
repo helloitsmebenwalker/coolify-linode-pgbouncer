@@ -64,6 +64,35 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # Consumes mail_events, pulls the .eml back out of the bucket, parses it and
+  # writes the extracted data to Postgres. See mailproc/README.md.
+  mailproc:
+    build:
+      context: ./mailproc
+      target: runtime
+    environment:
+      NODE_ENV: development
+      PORT: 3002
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-devpassword}@db:5432/${POSTGRES_DB:-app}
+      QUEUE_NAME: ${QUEUE_NAME:-mail_events}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-ord-1}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_FORCE_PATH_STYLE: "true"
+      # The event names its own bucket; this is the list we will actually read.
+      S3_ALLOWED_BUCKETS: ${S3_BUCKET:-mailhook-archive}
+      # On locally to demonstrate the write-back; off by default in production.
+      EXTRACT_ATTACHMENTS: "true"
+    ports:
+      - "${MAILPROC_PORT:-3002}:3002"
+    depends_on:
+      db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   # Stands in for Linode Object Storage. Console on http://localhost:9001.
   minio:
     image: minio/minio:latest

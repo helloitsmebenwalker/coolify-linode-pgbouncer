@@ -184,10 +184,12 @@ into the archive.
 }
 ```
 
-Consuming it is `read` → work → `archive`; `src/consumer.ts` is a complete
-worked example. The visibility timeout is the safety net: a consumer that dies
-mid-work leaves the message to reappear rather than losing it, which is why no
-part of this needs a distributed transaction.
+Consuming it is `read` → work → `archive`; `src/consumer.ts` is a minimal worked
+example, and [`mailproc/`](../mailproc/) is the real one — it pulls the message
+back out of the bucket, parses it, and gives you a handler to hang logic off.
+The visibility timeout is the safety net: a consumer that dies mid-work leaves
+the message to reappear rather than losing it, which is why no part of this
+needs a distributed transaction.
 
 ## Operations
 

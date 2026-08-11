@@ -34,9 +34,10 @@ build: ## Build the production image exactly as Coolify will
 	docker build -t coolify-linode-pgbouncer-app:local ./app
 
 .PHONY: typecheck
-typecheck: ## Typecheck the app and the mailhook service
+typecheck: ## Typecheck every service
 	cd app && npm run typecheck
 	cd mailhook && npm run typecheck
+	cd mailproc && npm run typecheck
 
 ## ---- mailhook (M365 -> bucket -> queue) ---------------------------------
 
@@ -63,6 +64,34 @@ mailhook-ingest: ## Push a .eml through the pipeline locally. Vars: EML=path/to/
 .PHONY: mailhook-consume
 mailhook-consume: ## Drain the mail_events queue with the reference consumer
 	docker compose exec -T mailhook node dist/consumer.js
+
+## ---- mailproc (queue -> bucket -> parsed data) --------------------------
+
+MAILPROC_URL ?= http://localhost:$(or $(MAILPROC_PORT),3002)
+
+.PHONY: mailproc-up
+mailproc-up: ## Start the consumer alongside mailhook + MinIO + postgres
+	docker compose up -d --build mailproc
+
+.PHONY: mailproc-logs
+mailproc-logs: ## Tail consumer logs
+	docker compose logs -f mailproc
+
+.PHONY: mailproc-stats
+mailproc-stats: ## Queue depth, documents processed, dead letters
+	@curl -sS $(MAILPROC_URL)/api/stats; echo
+
+.PHONY: mailproc-docs
+mailproc-docs: ## Recently processed emails. Vars: Q=search terms
+	@curl -sS --get $(MAILPROC_URL)/api/documents $(if $(Q),--data-urlencode "q=$(Q)"); echo
+
+.PHONY: mailproc-failures
+mailproc-failures: ## Dead-lettered messages awaiting replay
+	@curl -sS $(MAILPROC_URL)/api/failures; echo
+
+.PHONY: mailproc-drain
+mailproc-drain: ## Process everything on the queue now, then stop
+	docker compose exec -T mailproc node dist/drain.js
 
 .PHONY: sub-create sub-list sub-renew sub-delete
 sub-create: ## Subscribe the configured mailbox (service must be publicly reachable)

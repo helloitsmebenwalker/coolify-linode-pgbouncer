@@ -8,6 +8,7 @@ PgBouncer connection pooling.
 .devcontainer/     dev container: docker, terraform, node 22, linode-cli
 app/               sample Fastify + Postgres app, multi-stage Dockerfile
 mailhook/          M365 webhook -> Object Storage -> Postgres queue
+mailproc/          queue -> bucket -> parsed email data, with a handler seam
 infra/coolify/     terraform: Linode host, firewall, cloud-init that installs Coolify
 infra/database/    terraform: Akamai Managed PostgreSQL + PgBouncer pool
 infra/storage/     terraform: Object Storage bucket + a key scoped to it
@@ -319,12 +320,25 @@ pooling work above:
   object that isn't there. Delivery is at-least-once; every event carries a
   stable `resourceId` to dedupe on.
 
+[`mailproc/`](mailproc/) is the other end: it claims events off the queue, pulls
+the `.eml` back out of the bucket, verifies its checksum, parses it, and writes
+addresses, bodies, headers and attachment metadata to Postgres — with one
+marked function, `onEmailStored`, where your own logic goes. Transient failures
+ride the queue's visibility timeout; malformed ones are dead-lettered with their
+payload intact, so replay is a real replay.
+
+Splitting it this way is the reason the bucket holds original MIME rather than
+anyone's interpretation of it: the parse is repeatable, so a bug in extraction
+costs a re-run, not the data.
+
 ```bash
 make storage-apply        # bucket + a key scoped to just that bucket
 make storage-env          # the S3_* block for Coolify's env editor
 make mailhook-up          # locally: mailhook + MinIO + postgres
-make mailhook-ingest EML=message.eml   # push a .eml through the real path
-make mailhook-consume     # drain the queue with the reference consumer
+make mailproc-up          # the consumer
+make mailhook-ingest EML=message.eml   # push a .eml in at the top
+make mailproc-stats       # watch it come out the bottom
+make mailproc-docs Q="invoice"         # full-text over what was extracted
 ```
 
 Local development needs no Microsoft tenant.
@@ -332,7 +346,8 @@ Local development needs no Microsoft tenant.
 app registration, DNS, Coolify environment, subscribing, and what breaks.
 **[mailhook/README.md](mailhook/README.md)** covers the design, the event schema,
 the subscription lifecycle (they expire in under three days and fail silently)
-and day-two operations.
+and day-two operations. **[mailproc/README.md](mailproc/README.md)** covers the
+consumer: the handler seam, what lands in Postgres, and how reprocessing works.
 
 ## Notes
 
