@@ -15,8 +15,8 @@ before it.
 
 | | Why |
 | --- | --- |
-| A Microsoft 365 tenant, and rights to **grant admin consent** in it | Application permissions do not work without consent, and consent is an admin action. If you are not a Global Administrator or Privileged Role Administrator, you need someone who is — this is the step most likely to block you for a day. |
-| The mailbox you want to watch | A normal user mailbox or a shared mailbox, in that tenant. |
+| A Microsoft 365 tenant with Exchange Online, and admin rights in it | You need to **grant admin consent** (Global Administrator or Privileged Role Administrator) or, for the scoped route in step 1, the **Organization Management** role group in Exchange. If you hold neither, you need someone who does — this is the step most likely to block you for a day. |
+| The mailbox you want to watch | A user or shared mailbox in that tenant, **with an Exchange Online licence assigned**. An unlicensed user has no mailbox, and Graph answers `MailboxNotEnabledForRESTAPI` however correct everything else is. |
 | A domain you control, with DNS pointing at the Coolify host | **Not optional.** Graph will only call a public HTTPS URL with a publicly-trusted certificate. Coolify's default `sslip.io` URL is plain HTTP, so a subscription against it cannot be created. |
 | A running Coolify deploy of this repo | From the root DEPLOY.md. |
 | The managed Postgres URL | `make pool-show`. |
@@ -31,33 +31,69 @@ In the [Microsoft Entra admin center](https://entra.microsoft.com) →
    with no user sign-in.
 2. From **Overview**, copy the **Application (client) ID** and the
    **Directory (tenant) ID**.
-3. **API permissions → Add a permission → Microsoft Graph → Application
-   permissions** → `Mail.Read`. Add it, then **Grant admin consent** and confirm
-   the status column turns green. Delegated permissions are the wrong kind here;
-   there is no signed-in user.
-4. **Certificates & secrets → New client secret**. Copy the **Value** now — it
-   is shown once. Note the expiry: a secret can last at most 24 months, and when
-   it expires the pipeline stops with 401s. Put the date in a calendar.
+3. **Certificates & secrets → New client secret**. Copy the **Value** now — it
+   is shown once (the "Secret ID" column is not the secret). Note the expiry: a
+   secret can last at most 24 months, and when it expires the pipeline stops
+   with 401s. Put the date in a calendar.
 
-### Restrict which mailboxes it can read
+Then grant it access to mail — via **one** of the two routes below. They are
+additive, which is the trap: doing both leaves the mailbox scoping with no
+effect at all.
 
-`Mail.Read` as an application permission grants read access to **every mailbox
-in the tenant**. Scope it before the secret goes anywhere near a container. In
-Exchange Online PowerShell:
+### Route A — throwaway test tenant
+
+Grant `Mail.Read` tenant-wide and move on:
+
+**API permissions → Add a permission → Microsoft Graph → Application
+permissions** → `Mail.Read` → **Grant admin consent**, and confirm the status
+column turns green. Delegated permissions are the wrong kind here; there is no
+signed-in user.
+
+In a trial tenant with a mailbox or two this is the whole story. In a tenant
+with real mail in it, "every mailbox" is not a scope you want a container to
+hold.
+
+### Route B — any tenant you care about
+
+Do **not** consent `Mail.Read` in Entra. Grant it in Exchange instead, scoped to
+specific mailboxes, using [RBAC for
+Applications](https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac).
+This replaces the older `New-ApplicationAccessPolicy`, which Microsoft now
+documents as legacy.
+
+You need the **Enterprise applications** IDs, not the App registrations ones —
+Entra admin center → **Enterprise applications** → your app → the **Object ID**
+there is the service principal id. Then, in Exchange Online PowerShell:
 
 ```powershell
-# A mail-enabled security group containing only the mailboxes mailhook may read
-New-ApplicationAccessPolicy -AppId <client-id> `
-  -PolicyScopeGroupId mailhook-allowed@contoso.com `
-  -AccessRight RestrictAccess -Description "mailhook"
+Connect-ExchangeOnline    # you need the Organization Management role group
 
-# Verify — this must say Granted for the mailbox you watch, Denied for others
-Test-ApplicationAccessPolicy -Identity invoices@contoso.com -AppId <client-id>
+# A pointer in Exchange to the Entra service principal
+New-ServicePrincipal -AppId <application-client-id> `
+  -ObjectId <enterprise-app-object-id> -DisplayName "mailhook"
+
+# The set of mailboxes it may read. MemberOfGroup takes the group's
+# distinguished name — get it from (Get-Group mailhook-allowed).DistinguishedName
+New-ManagementScope -Name "mailhook-scope" `
+  -RecipientRestrictionFilter "MemberOfGroup -eq '<group-distinguished-name>'"
+
+New-ManagementRoleAssignment -App <enterprise-app-object-id> `
+  -Role "Application Mail.Read" -CustomResourceScope "mailhook-scope"
+
+# InScope must be True for the mailbox you watch, False for any other
+Test-ServicePrincipalAuthorization -Identity "mailhook" `
+  -Resource invoices@contoso.com | Format-Table
 ```
 
-Policy changes take a few minutes to propagate. If step 6 fails with
-`ErrorAccessDenied` right after you set this, wait and retry before assuming the
-permission is wrong.
+Two things that will waste your time otherwise:
+
+- **If `Mail.Read` is also consented in Entra, the scope does nothing.** The two
+  authorities are additive — an unscoped Entra grant unioned with a scoped
+  Exchange grant is an unscoped grant. Remove the Entra consent.
+- **Permission changes are cached for 30 minutes to 2 hours.**
+  `Test-ServicePrincipalAuthorization` bypasses the cache, so trust it over what
+  the API is currently doing. Only direct group membership counts; nested groups
+  are out of scope.
 
 ## 2. Create the bucket
 
@@ -215,7 +251,8 @@ archived mail.
 | Symptom | Cause |
 | --- | --- |
 | `subscription validation request failed` on create | Graph could not reach the URL or did not get the token back. Check `WEBHOOK_PUBLIC_URL` matches the assigned domain exactly, that it is HTTPS with a valid certificate (not the `sslip.io` fallback), and that `curl https://…/healthz` works from outside your network. |
-| `ErrorAccessDenied` fetching a message | Application access policy has not propagated, or does not include this mailbox. `Test-ApplicationAccessPolicy` from step 1. |
+| `ErrorAccessDenied` fetching a message | Scoping does not cover this mailbox, or the change is still cached (30 min–2 h). `Test-ServicePrincipalAuthorization` from step 1 bypasses the cache and tells you which. |
+| `MailboxNotEnabledForRESTAPI` | The user has no Exchange Online licence, so there is no mailbox to read. |
 | `Insufficient privileges to complete the operation` | Admin consent was never granted, or the permission was added as delegated rather than application. |
 | 401 on every Graph call | Client secret expired or was copied from the "Secret ID" column instead of "Value". |
 | `configured: false` in `/healthz` | One of the `GRAPH_*` or `S3_*` variables is empty. The startup log names which. |

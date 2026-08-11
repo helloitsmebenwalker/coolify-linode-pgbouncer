@@ -67,13 +67,21 @@ tenant id, client id, and a client secret.
 
 `Mail.Read` as an application permission means *every* mailbox in the tenant.
 Scope it down, or the compromise of this container is the compromise of all
-corporate mail:
+corporate mail. Use [RBAC for
+Applications](https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac)
+in Exchange Online — `New-ApplicationAccessPolicy` is the legacy mechanism —
+and **remove the tenant-wide Entra consent when you do**, because the two grants
+are additive:
 
 ```powershell
-New-ApplicationAccessPolicy -AppId <client-id> `
-  -PolicyScopeGroupId mailhook-allowed@contoso.com `
-  -AccessRight RestrictAccess -Description "mailhook"
+New-ServicePrincipal -AppId <client-id> -ObjectId <enterprise-app-object-id> -DisplayName "mailhook"
+New-ManagementScope -Name "mailhook-scope" -RecipientRestrictionFilter "MemberOfGroup -eq '<group-dn>'"
+New-ManagementRoleAssignment -App <enterprise-app-object-id> -Role "Application Mail.Read" `
+  -CustomResourceScope "mailhook-scope"
 ```
+
+[DEPLOY.md](DEPLOY.md#1-register-the-application-in-microsoft-entra) has the
+full version, including how to verify it.
 
 ### 2. Bucket
 
