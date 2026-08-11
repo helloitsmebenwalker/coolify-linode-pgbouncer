@@ -21,6 +21,87 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Microsoft 365 -> bucket -> Postgres queue. See mailhook/README.md.
+  #
+  # Locally it points at MinIO instead of Linode Object Storage and runs with
+  # DEV_INGEST=true, so you can push a .eml through the real store-and-publish
+  # path without a Microsoft tenant:
+  #
+  #   curl --data-binary @message.eml -H 'content-type: message/rfc822' \
+  #     http://localhost:3001/dev/ingest
+  mailhook:
+    build:
+      context: ./mailhook
+      target: runtime
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-devpassword}@db:5432/${POSTGRES_DB:-app}
+      WEBHOOK_CLIENT_STATE: ${WEBHOOK_CLIENT_STATE:-local-dev-client-state}
+      WEBHOOK_PUBLIC_URL: ${WEBHOOK_PUBLIC_URL:-}
+      GRAPH_TENANT_ID: ${GRAPH_TENANT_ID:-}
+      GRAPH_CLIENT_ID: ${GRAPH_CLIENT_ID:-}
+      GRAPH_CLIENT_SECRET: ${GRAPH_CLIENT_SECRET:-}
+      GRAPH_MAILBOX: ${GRAPH_MAILBOX:-}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-ord-1}
+      S3_BUCKET: ${S3_BUCKET:-mailhook-archive}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # MinIO has no wildcard DNS, so addressing is path-style here and
+      # virtual-hosted against Linode.
+      S3_FORCE_PATH_STYLE: "true"
+      DEV_INGEST: "true"
+      # Both talk to Graph; neither is useful until the tenant is configured.
+      CATCHUP_ENABLED: "false"
+      SUBSCRIPTION_AUTORENEW: "false"
+    ports:
+      - "${MAILHOOK_PORT:-3001}:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Stands in for Linode Object Storage. Console on http://localhost:9001.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # One-shot: create the bucket, then exit.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      BUCKET: ${S3_BUCKET:-mailhook-archive}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing "local/$$BUCKET" &&
+        mc anonymous set none "local/$$BUCKET"
+    restart: "no"
+
   db:
     image: postgres:17-alpine
     environment:
@@ -42,3 +123,4 @@ services:
 
 volumes:
   pgdata:
+  miniodata:

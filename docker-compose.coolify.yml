@@ -31,6 +31,56 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # Microsoft 365 mail -> Object Storage -> Postgres queue.
+  #
+  # Give this service its own domain in Coolify: the FQDN below is the URL
+  # Microsoft Graph calls, and Graph requires public HTTPS with a valid
+  # certificate — which is exactly what Coolify's Traefik gives you.
+  #
+  # Set in Coolify's env editor (from `terraform -chdir=infra/storage output
+  # -raw mailhook_env`, plus the app registration):
+  #   GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, GRAPH_MAILBOX
+  #   S3_BUCKET, S3_REGION, S3_ENDPOINT, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY
+  mailhook:
+    build:
+      context: ./mailhook
+      target: runtime
+    environment:
+      SERVICE_FQDN_MAILHOOK_3001: ${SERVICE_FQDN_MAILHOOK_3001}
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_CA_CERT: ${DATABASE_CA_CERT}
+
+      # Graph's shared secret on every notification. Coolify generates it once
+      # and keeps it; `npm run sub -- create` reads the same value, so the two
+      # sides always agree.
+      WEBHOOK_CLIENT_STATE: ${SERVICE_PASSWORD_CLIENTSTATE}
+      # Must be the public HTTPS URL Graph will call — the domain you assign
+      # this service, e.g. https://${SERVICE_FQDN_MAILHOOK_3001}
+      WEBHOOK_PUBLIC_URL: ${WEBHOOK_PUBLIC_URL}
+
+      GRAPH_TENANT_ID: ${GRAPH_TENANT_ID}
+      GRAPH_CLIENT_ID: ${GRAPH_CLIENT_ID}
+      GRAPH_CLIENT_SECRET: ${GRAPH_CLIENT_SECRET}
+      GRAPH_MAILBOX: ${GRAPH_MAILBOX}
+      GRAPH_MAIL_FOLDER: ${GRAPH_MAIL_FOLDER:-Inbox}
+
+      S3_BUCKET: ${S3_BUCKET}
+      S3_REGION: ${S3_REGION:-us-ord-1}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+
+      QUEUE_NAME: ${QUEUE_NAME:-mail_events}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3001/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
   # Delete this service if you use the managed database instead.
 #   db:
 #     image: postgres:17-alpine

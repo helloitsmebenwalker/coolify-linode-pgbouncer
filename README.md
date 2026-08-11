@@ -7,8 +7,10 @@ PgBouncer connection pooling.
 ```
 .devcontainer/     dev container: docker, terraform, node 22, linode-cli
 app/               sample Fastify + Postgres app, multi-stage Dockerfile
+mailhook/          M365 webhook -> Object Storage -> Postgres queue
 infra/coolify/     terraform: Linode host, firewall, cloud-init that installs Coolify
 infra/database/    terraform: Akamai Managed PostgreSQL + PgBouncer pool
+infra/storage/     terraform: Object Storage bucket + a key scoped to it
 bench/             direct-vs-pooled benchmark and a pooling-safety audit
 docker-compose.yml            local dev
 docker-compose.pgbouncer.yml  local dev + PgBouncer (overlay)
@@ -287,6 +289,51 @@ make bench SCENARIO=churn C=100    # against the provisioned Linode cluster
 make semantics                     # the safety audit, against the real pool
 ```
 
+## Mail ingestion: Microsoft 365 → bucket → Postgres queue
+
+[`mailhook/`](mailhook/) is a second service on the same infrastructure. Mail
+arriving in a watched Microsoft 365 mailbox is archived to Linode Object Storage
+as raw MIME, and a Postgres-managed queue receives an event pointing at the
+object.
+
+```
+Graph notification ──▶ verify clientState, INSERT intake, 202  (~5ms)
+                       worker: claim (SKIP LOCKED) ──▶ Graph $value
+                               PUT ──▶ s3://bucket/raw/YYYY/MM/DD/….eml
+                               BEGIN  enqueue event + mark done  COMMIT
+```
+
+Three decisions carry the design, and two of them come straight out of the
+pooling work above:
+
+- **The webhook only writes one row.** Graph allows roughly three seconds and a
+  bounded number of retries before it starts dropping notifications, so
+  everything expensive happens after the ack, driven off a durable intake table.
+- **The queue is plain SQL with `FOR UPDATE SKIP LOCKED`**, not `pgmq` — the
+  Aiven-backed cluster doesn't offer the extension — and it is polled, not
+  `LISTEN`ed to. Transaction pooling multiplexes backends between clients, so a
+  `LISTEN` registered on one checkout is gone by the next query. See
+  [What transaction mode breaks](#what-transaction-mode-breaks).
+- **The event is written only after the object is.** Both happen in one
+  transaction with the intake row's completion, so an event never points at an
+  object that isn't there. Delivery is at-least-once; every event carries a
+  stable `resourceId` to dedupe on.
+
+```bash
+make storage-apply        # bucket + a key scoped to just that bucket
+make storage-env          # the S3_* block for Coolify's env editor
+make mailhook-up          # locally: mailhook + MinIO + postgres
+make mailhook-ingest EML=message.eml   # push a .eml through the real path
+make mailhook-consume     # drain the queue with the reference consumer
+```
+
+Local development needs no Microsoft tenant.
+**[mailhook/DEPLOY.md](mailhook/DEPLOY.md)** is the deployment runbook — Entra
+app registration, DNS, Coolify environment, subscribing, and what breaks.
+**[mailhook/README.md](mailhook/README.md)** covers the design, the event schema,
+the subscription lifecycle (they expire in under three days and fail silently)
+and day-two operations.
+
 ## Notes
 
 - Coolify's documented minimum is 2 CPU / 2 GB. The default `g6-standard-2`
@@ -317,6 +364,12 @@ make semantics                     # the safety audit, against the real pool
 ## Teardown
 
 ```bash
+make sub-delete ID=<subscription-id>   # while the service is still up
+make storage-destroy                   # the bucket must be empty first
 make db-destroy
 make tf-destroy
 ```
+
+Unsubscribe before tearing the service down: a subscription pointing at a dead
+URL keeps failing until Graph expires it, and Terraform will not delete a bucket
+that still has objects in it.

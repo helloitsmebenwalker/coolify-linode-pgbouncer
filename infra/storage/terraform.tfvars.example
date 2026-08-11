@@ -1,0 +1,15 @@
+# cp terraform.tfvars.example terraform.tfvars and edit.
+# LINODE_TOKEN is read from the environment; keep it out of this file.
+
+# Global per region, so make it yours.
+bucket_label = "acme-mailhook-archive"
+
+# Same region as the Coolify host and the managed database.
+region = "us-ord-1"
+
+# 0 keeps archived mail forever. Set a number of days if you have a retention
+# policy — email bodies and attachments are usually the most sensitive thing
+# the system stores.
+expire_after_days = 0
+
+# versioning = true

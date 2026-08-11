@@ -3,6 +3,7 @@ SHELL := /bin/bash
 
 COOLIFY_DIR := infra/coolify
 DB_DIR      := infra/database
+STORAGE_DIR := infra/storage
 POOL        := $(DB_DIR)/scripts/pgbouncer-pool.sh
 
 # Benchmark knobs
@@ -33,15 +34,57 @@ build: ## Build the production image exactly as Coolify will
 	docker build -t coolify-linode-pgbouncer-app:local ./app
 
 .PHONY: typecheck
-typecheck: ## Typecheck the app
+typecheck: ## Typecheck the app and the mailhook service
 	cd app && npm run typecheck
+	cd mailhook && npm run typecheck
+
+## ---- mailhook (M365 -> bucket -> queue) ---------------------------------
+
+MAILHOOK_URL ?= http://localhost:$(or $(MAILHOOK_PORT),3001)
+
+.PHONY: mailhook-up
+mailhook-up: ## Start mailhook + MinIO + postgres locally
+	docker compose up -d --build mailhook
+
+.PHONY: mailhook-logs
+mailhook-logs: ## Tail mailhook logs
+	docker compose logs -f mailhook
+
+.PHONY: mailhook-stats
+mailhook-stats: ## Intake and queue depth
+	@curl -sS $(MAILHOOK_URL)/api/stats; echo
+
+.PHONY: mailhook-ingest
+mailhook-ingest: ## Push a .eml through the pipeline locally. Vars: EML=path/to/message.eml
+	@test -n "$(EML)" || { echo "usage: make mailhook-ingest EML=message.eml"; exit 1; }
+	@curl -sS --data-binary @$(EML) -H 'content-type: message/rfc822' \
+		$(MAILHOOK_URL)/dev/ingest; echo
+
+.PHONY: mailhook-consume
+mailhook-consume: ## Drain the mail_events queue with the reference consumer
+	docker compose exec -T mailhook node dist/consumer.js
+
+.PHONY: sub-create sub-list sub-renew sub-delete
+sub-create: ## Subscribe the configured mailbox (service must be publicly reachable)
+	docker compose exec -T mailhook node dist/subscriptions.js create
+
+sub-list: ## Show Graph subscriptions and the local record of them
+	docker compose exec -T mailhook node dist/subscriptions.js list
+
+sub-renew: ## Renew every active subscription now
+	docker compose exec -T mailhook node dist/subscriptions.js renew
+
+sub-delete: ## Unsubscribe. Vars: ID=<subscription-id>
+	@test -n "$(ID)" || { echo "usage: make sub-delete ID=<subscription-id>"; exit 1; }
+	docker compose exec -T mailhook node dist/subscriptions.js delete $(ID)
 
 ## ---- infrastructure -----------------------------------------------------
 
 .PHONY: tf-init
-tf-init: ## terraform init for both stacks
+tf-init: ## terraform init for every stack
 	terraform -chdir=$(COOLIFY_DIR) init
 	terraform -chdir=$(DB_DIR) init
+	terraform -chdir=$(STORAGE_DIR) init
 
 .PHONY: tf-plan
 tf-plan: ## Plan the Coolify host
@@ -96,6 +139,21 @@ pool-apply: ## Re-create/update the pool from current tfvars
 .PHONY: db-url
 db-url: ## Print the DIRECT (non-pooled) DATABASE_URL
 	@terraform -chdir=$(DB_DIR) output -raw direct_database_url; echo
+
+## ---- object storage -----------------------------------------------------
+
+.PHONY: storage-plan storage-apply storage-destroy storage-env
+storage-plan: ## Plan the Object Storage bucket + scoped access key
+	terraform -chdir=$(STORAGE_DIR) plan
+
+storage-apply: ## Create the bucket and its access key
+	terraform -chdir=$(STORAGE_DIR) apply
+
+storage-destroy: ## Delete the bucket (must be empty) and the key
+	terraform -chdir=$(STORAGE_DIR) destroy
+
+storage-env: ## Print the S3_* block to paste into Coolify's env editor
+	@terraform -chdir=$(STORAGE_DIR) output -raw mailhook_env
 
 ## ---- pgbouncer testing --------------------------------------------------
 

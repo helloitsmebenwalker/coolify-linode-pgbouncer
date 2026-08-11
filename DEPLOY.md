@@ -167,9 +167,19 @@ Catch it without a deploy cycle by running the same parse Coolify runs:
 docker compose -f docker-compose.coolify.yml config
 ```
 
-### 10. Teardown
+### 10. Optional: the mail pipeline
+
+[`mailhook/`](mailhook/) — Microsoft 365 mail into Object Storage, with an event
+on a Postgres queue — deploys as part of the same compose resource. It needs an
+Entra app registration, a bucket, and a real domain (Graph will not call the
+`sslip.io` fallback, because it is plain HTTP).
+
+**[mailhook/DEPLOY.md](mailhook/DEPLOY.md)** is the runbook.
+
+### 11. Teardown
 
 ```bash
+make storage-destroy   # only if you did step 10; unsubscribe first, see its runbook
 make db-destroy
 make tf-destroy
 ```
